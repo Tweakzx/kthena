@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 
 	"github.com/volcano-sh/kthena/pkg/model-serving-controller/utils"
 )
@@ -330,7 +331,12 @@ func (s *store) AddRole(modelServingName types.NamespacedName, groupName, roleNa
 		group.roles[roleName] = make(map[string]*Role)
 	}
 
-	if existing, exists := group.roles[roleName][roleID]; !exists || existing.Revision != revision {
+	if existing, exists := group.roles[roleName][roleID]; exists {
+		if existing.Revision != revision {
+			klog.Warningf("AddRole: role %s/%s already exists with revision %s, but got revision %s; skipping",
+				roleName, roleID, existing.Revision, revision)
+		}
+	} else {
 		group.roles[roleName][roleID] = &Role{
 			Name:     roleID,
 			Status:   RoleCreating,

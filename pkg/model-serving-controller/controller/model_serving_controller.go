@@ -608,40 +608,31 @@ func (c *ModelServingController) syncAll() {
 }
 
 func (c *ModelServingController) manageServingGroupReplicas(ctx context.Context, ms *workloadv1alpha1.ModelServing, newRevision string) error {
-	klog.V(4).Infof("manageServingGroupReplicas: start for modelServing=%s, newRevision=%s", utils.GetNamespaceName(ms), newRevision)
-
 	servingGroupList, err := c.store.GetServingGroupByModelServing(utils.GetNamespaceName(ms))
 	if err != nil && !errors.Is(err, datastore.ErrServingGroupNotFound) {
 		return fmt.Errorf("cannot get servingGroup of modelServing: %s from map: %v", ms.GetName(), err)
 	}
 	expectedCount := int(*ms.Spec.Replicas)
 	curReplicas := len(servingGroupList)
-	klog.V(4).Infof("manageServingGroupReplicas: modelServing=%s, curReplicas=%d, expectedCount=%d", utils.GetNamespaceName(ms), curReplicas, expectedCount)
 
 	// Determine whether it is a scale-up or scale-down scenario
 	if curReplicas < expectedCount {
-		klog.V(4).Infof("manageServingGroupReplicas: scale-up needed for modelServing=%s (%d -> %d)", utils.GetNamespaceName(ms), curReplicas, expectedCount)
+		klog.V(2).Infof("manageServingGroupReplicas: scaling up modelServing=%s (%d -> %d)", utils.GetNamespaceName(ms), curReplicas, expectedCount)
 		// update pod groups if needed
 		for _, servingGroup := range servingGroupList {
-			klog.V(4).Infof("manageServingGroupReplicas: creating/updating PodGroup for existing ServingGroup=%s", servingGroup.Name)
 			if err := c.createOrUpdatePodGroupByServingGroup(ctx, ms, servingGroup.Name); err != nil {
 				return fmt.Errorf("failed to update PodGroup for ServingGroup %s: %v", servingGroup.Name, err)
 			}
 		}
-		klog.V(4).Infof("manageServingGroupReplicas: scaling up ServingGroups for modelServing=%s", utils.GetNamespaceName(ms))
 		if err := c.scaleUpServingGroups(ctx, ms, servingGroupList, expectedCount, newRevision); err != nil {
 			return fmt.Errorf("failed to scale up ServingGroups: %v", err)
 		}
-		klog.V(4).Infof("manageServingGroupReplicas: scale-up complete for modelServing=%s", utils.GetNamespaceName(ms))
 	} else {
 		if curReplicas > expectedCount {
-			klog.V(4).Infof("manageServingGroupReplicas: scale-down needed for modelServing=%s (%d -> %d)", utils.GetNamespaceName(ms), curReplicas, expectedCount)
+			klog.V(2).Infof("manageServingGroupReplicas: scaling down modelServing=%s (%d -> %d)", utils.GetNamespaceName(ms), curReplicas, expectedCount)
 			if err := c.scaleDownServingGroups(ctx, ms, servingGroupList, expectedCount); err != nil {
 				return fmt.Errorf("failed to scale down ServingGroups: %v", err)
 			}
-			klog.V(4).Infof("manageServingGroupReplicas: scale-down complete for modelServing=%s", utils.GetNamespaceName(ms))
-		} else {
-			klog.V(4).Infof("manageServingGroupReplicas: no replica count change needed for modelServing=%s", utils.GetNamespaceName(ms))
 		}
 
 		// Note: in case the role is updated, we need to update pod groups as well.
@@ -651,19 +642,14 @@ func (c *ModelServingController) manageServingGroupReplicas(ctx context.Context,
 		if err != nil && !errors.Is(err, datastore.ErrServingGroupNotFound) {
 			return fmt.Errorf("cannot get servingGroup of modelServing: %s from map: %v", ms.GetName(), err)
 		}
-		klog.V(4).Infof("manageServingGroupReplicas: re-fetched %d ServingGroups for PodGroup sync, modelServing=%s", len(servingGroupList), utils.GetNamespaceName(ms))
 		for _, servingGroup := range servingGroupList {
 			if servingGroup.Status != datastore.ServingGroupDeleting {
-				klog.V(4).Infof("manageServingGroupReplicas: creating/updating PodGroup for ServingGroup=%s (status=%s)", servingGroup.Name, servingGroup.Status)
 				if err := c.createOrUpdatePodGroupByServingGroup(ctx, ms, servingGroup.Name); err != nil {
 					return fmt.Errorf("failed to update PodGroup for ServingGroup %s: %v", servingGroup.Name, err)
 				}
-			} else {
-				klog.V(4).Infof("manageServingGroupReplicas: skipping PodGroup update for ServingGroup=%s (status=Deleting)", servingGroup.Name)
 			}
 		}
 	}
-	klog.V(4).Infof("manageServingGroupReplicas: done for modelServing=%s", utils.GetNamespaceName(ms))
 	return nil
 }
 
@@ -901,8 +887,6 @@ func (c *ModelServingController) scaleUpRoles(ctx context.Context, ms *workloadv
 // manageRoleReplicas manages the replicas of a specific role within an Serving group
 // It handles both scale up and scale down operations for the role
 func (c *ModelServingController) manageRoleReplicas(ctx context.Context, ms *workloadv1alpha1.ModelServing, groupName string, targetRole workloadv1alpha1.Role, servingGroupOrdinal int, newRevision string) {
-	klog.V(4).Infof("manageRoleReplicas: start managing role %s in ServingGroup %s for ModelServing %s/%s (servingGroupOrdinal=%d, revision=%s, desiredReplicas=%d, workerReplicas=%d)",
-		targetRole.Name, groupName, ms.Namespace, ms.Name, servingGroupOrdinal, newRevision, int(*targetRole.Replicas), int(targetRole.WorkerReplicas))
 	// TODO: add podGroup update after gang scheduler finished
 	// Get all replicas of a role from storage, for example, prefill-0, prefill-1...
 	roleList, err := c.store.GetRoleList(utils.GetNamespaceName(ms), groupName, targetRole.Name)
@@ -910,18 +894,13 @@ func (c *ModelServingController) manageRoleReplicas(ctx context.Context, ms *wor
 		klog.Errorf("manageRoleReplicas: cannot get role %s in ServingGroup %s, err:%v", targetRole.Name, groupName, err)
 		return
 	}
-	klog.V(4).Infof("manageRoleReplicas: found %d existing role replicas for role %s in ServingGroup %s", len(roleList), targetRole.Name, groupName)
 
 	// TODO: need to check the pod spec match the modelserving spec, if not, recreate the pod
 
 	expectedCount := int(*targetRole.Replicas)
 	expectedPods := 1 + int(targetRole.WorkerReplicas)
-	klog.V(4).Infof("manageRoleReplicas: role %s in ServingGroup %s expects %d replicas, each with %d pod(s)",
-		targetRole.Name, groupName, expectedCount, expectedPods)
 	for _, roleObj := range roleList {
-		klog.V(4).Infof("manageRoleReplicas: checking role replica %s/%s (status=%s)", targetRole.Name, roleObj.Name, roleObj.Status)
 		if roleObj.Status == datastore.RoleDeleting {
-			klog.V(4).Infof("manageRoleReplicas: role replica %s/%s is in Deleting state, skipping pod check", targetRole.Name, roleObj.Name)
 			continue
 		}
 		roleIDValue := fmt.Sprintf("%s/%s/%s/%s", ms.Namespace, groupName, targetRole.Name, roleObj.Name)
@@ -930,11 +909,10 @@ func (c *ModelServingController) manageRoleReplicas(ctx context.Context, ms *wor
 			klog.Warningf("manageRoleReplicas: failed to list pods for role %s/%s in ServingGroup %s: %v", targetRole.Name, roleObj.Name, groupName, err)
 			continue
 		}
-		klog.V(4).Infof("manageRoleReplicas: role replica %s/%s in ServingGroup %s has %d/%d pods", targetRole.Name, roleObj.Name, groupName, len(pods), expectedPods)
 		for _, pod := range pods {
 			if !utils.IsOwnedByModelServingWithUID(pod, ms.UID) {
 				// If the pod is not owned by the ModelServing, we do not need to handle it.
-				klog.V(4).Infof("manageRoleReplicas: pod %s/%s maybe left from previous same named ModelServing %s/%s (expected UID=%s, got UID=%s), reenqueue ModelServing for reconcile",
+				klog.Warningf("manageRoleReplicas: pod %s/%s may be left from previous same-named ModelServing %s/%s (expected UID=%s, got UID=%s), re-enqueuing",
 					pod.Namespace, pod.Name, ms.Namespace, ms.Name, ms.UID, pod.OwnerReferences[0].UID)
 				c.enqueueModelServingAfter(ms, 1*time.Second)
 				break
@@ -943,31 +921,20 @@ func (c *ModelServingController) manageRoleReplicas(ctx context.Context, ms *wor
 		if len(pods) < expectedPods {
 			klog.V(2).Infof("manageRoleReplicas: role %s/%s in ServingGroup %s is missing pods (%d/%d), recreating", targetRole.Name, roleObj.Name, groupName, len(pods), expectedPods)
 			_, roleIndex := utils.GetParentNameAndOrdinal(roleObj.Name)
-			klog.V(4).Infof("manageRoleReplicas: triggering pod recreation for role %s/%s at roleIndex=%d, servingGroupOrdinal=%d", targetRole.Name, roleObj.Name, roleIndex, servingGroupOrdinal)
 			if err := c.CreatePodsByRole(ctx, *targetRole.DeepCopy(), ms, roleIndex, servingGroupOrdinal, newRevision); err != nil {
 				klog.Errorf("manageRoleReplicas: failed to recreate pods for role %s/%s in ServingGroup %s: %v", targetRole.Name, roleObj.Name, groupName, err)
-			} else {
-				klog.V(2).Infof("manageRoleReplicas: successfully triggered pod recreation for role %s/%s in ServingGroup %s", targetRole.Name, roleObj.Name, groupName)
 			}
-		} else {
-			klog.V(4).Infof("manageRoleReplicas: role replica %s/%s in ServingGroup %s has sufficient pods (%d/%d), no recreation needed", targetRole.Name, roleObj.Name, groupName, len(pods), expectedPods)
 		}
 	}
 
 	// Determine whether it is a scale-up or scale-down scenario
-	klog.V(4).Infof("manageRoleReplicas: current=%d, expected=%d for role %s in ServingGroup %s", len(roleList), expectedCount, targetRole.Name, groupName)
 	if len(roleList) < expectedCount {
 		klog.V(2).Infof("manageRoleReplicas: scaling UP role %s in ServingGroup %s: current=%d, expected=%d", targetRole.Name, groupName, len(roleList), expectedCount)
-		// Handle scale up by calling scaleUpRoles
 		c.scaleUpRoles(ctx, ms, groupName, targetRole, roleList, expectedCount, servingGroupOrdinal, newRevision)
 	} else if len(roleList) > expectedCount {
 		klog.V(2).Infof("manageRoleReplicas: scaling DOWN role %s in ServingGroup %s: current=%d, expected=%d", targetRole.Name, groupName, len(roleList), expectedCount)
-		// Handle scale down by calling scaleDownRoles
 		c.scaleDownRoles(ctx, ms, groupName, targetRole, roleList, expectedCount)
-	} else {
-		klog.V(4).Infof("manageRoleReplicas: role %s in ServingGroup %s is at desired replica count (%d), no scale action needed", targetRole.Name, groupName, expectedCount)
 	}
-	klog.V(4).Infof("manageRoleReplicas: finished managing role %s in ServingGroup %s for ModelServing %s/%s", targetRole.Name, groupName, ms.Namespace, ms.Name)
 }
 
 // emitRoleStatusEvent emits a Kubernetes Event for a role-related status change.
