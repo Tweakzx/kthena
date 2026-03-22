@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/cespare/xxhash"
+	"k8s.io/apimachinery/pkg/runtime"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -170,6 +171,32 @@ func TestPrefixCacheScore(t *testing.T) {
 		scores := plugin.Score(ctx, []*datastore.PodInfo{pod})
 		if scores != nil {
 			t.Errorf("expected nil for empty prompt, got %v", scores)
+		}
+	})
+}
+
+func TestNewPrefixCacheArgs(t *testing.T) {
+	mockDS := datastore.New()
+
+	t.Run("use defaults when args are absent", func(t *testing.T) {
+		plugin := NewPrefixCache(mockDS, runtime.RawExtension{})
+		if plugin.blockSizeToHash != defaultPrefixCacheBlockSizeToHash {
+			t.Fatalf("unexpected default blockSizeToHash: got %d, want %d", plugin.blockSizeToHash, defaultPrefixCacheBlockSizeToHash)
+		}
+		if plugin.maxBlocksToMatch != defaultPrefixCacheMaxBlocksToMatch {
+			t.Fatalf("unexpected default maxBlocksToMatch: got %d, want %d", plugin.maxBlocksToMatch, defaultPrefixCacheMaxBlocksToMatch)
+		}
+	})
+
+	t.Run("fall back to defaults for invalid values", func(t *testing.T) {
+		plugin := NewPrefixCache(mockDS, runtime.RawExtension{
+			Raw: []byte(`{"blockSizeToHash": 0, "maxBlocksToMatch": -1, "maxHashCacheSize": 0, "topKMatches": 0}`),
+		})
+		if plugin.blockSizeToHash != defaultPrefixCacheBlockSizeToHash {
+			t.Fatalf("unexpected fallback blockSizeToHash: got %d, want %d", plugin.blockSizeToHash, defaultPrefixCacheBlockSizeToHash)
+		}
+		if plugin.maxBlocksToMatch != defaultPrefixCacheMaxBlocksToMatch {
+			t.Fatalf("unexpected fallback maxBlocksToMatch: got %d, want %d", plugin.maxBlocksToMatch, defaultPrefixCacheMaxBlocksToMatch)
 		}
 	})
 }

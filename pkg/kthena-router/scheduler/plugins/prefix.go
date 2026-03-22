@@ -87,6 +87,13 @@ import (
 
 const PrefixCachePluginName = "prefix-cache"
 
+const (
+	defaultPrefixCacheBlockSizeToHash  = 64
+	defaultPrefixCacheMaxBlocksToMatch = 128
+	defaultPrefixCacheMaxHashCacheSize = 50000
+	defaultPrefixCacheTopKMatches      = 5
+)
+
 var _ framework.ScorePlugin = &PrefixCache{}
 
 type PrefixCache struct {
@@ -101,19 +108,38 @@ type PrefixCacheArgs struct {
 	BlockSizeToHash  int `yaml:"blockSizeToHash,omitempty"`
 	MaxBlocksToMatch int `yaml:"maxBlocksToMatch,omitempty"`
 	MaxHashCacheSize int `yaml:"maxHashCacheSize,omitempty"`
+	TopKMatches      int `yaml:"topKMatches,omitempty"`
 }
 
 // Default token block size of vLLM is 16, and a good guess of average characters per token is 4.
 // So we use 64 as the default block size.
 func NewPrefixCache(store datastore.Store, pluginArg runtime.RawExtension) *PrefixCache {
-	var prefixCacheArgs PrefixCacheArgs
+	prefixCacheArgs := PrefixCacheArgs{
+		BlockSizeToHash:  defaultPrefixCacheBlockSizeToHash,
+		MaxBlocksToMatch: defaultPrefixCacheMaxBlocksToMatch,
+		MaxHashCacheSize: defaultPrefixCacheMaxHashCacheSize,
+		TopKMatches:      defaultPrefixCacheTopKMatches,
+	}
 	if yaml.Unmarshal(pluginArg.Raw, &prefixCacheArgs) != nil {
 		klog.Errorf("Unmarshal PrefixCacheArgs error, setting default value")
 		prefixCacheArgs = PrefixCacheArgs{
-			64,
-			128,
-			50000,
+			BlockSizeToHash:  defaultPrefixCacheBlockSizeToHash,
+			MaxBlocksToMatch: defaultPrefixCacheMaxBlocksToMatch,
+			MaxHashCacheSize: defaultPrefixCacheMaxHashCacheSize,
+			TopKMatches:      defaultPrefixCacheTopKMatches,
 		}
+	}
+	if prefixCacheArgs.BlockSizeToHash <= 0 {
+		prefixCacheArgs.BlockSizeToHash = defaultPrefixCacheBlockSizeToHash
+	}
+	if prefixCacheArgs.MaxBlocksToMatch <= 0 {
+		prefixCacheArgs.MaxBlocksToMatch = defaultPrefixCacheMaxBlocksToMatch
+	}
+	if prefixCacheArgs.MaxHashCacheSize <= 0 {
+		prefixCacheArgs.MaxHashCacheSize = defaultPrefixCacheMaxHashCacheSize
+	}
+	if prefixCacheArgs.TopKMatches <= 0 {
+		prefixCacheArgs.TopKMatches = defaultPrefixCacheTopKMatches
 	}
 
 	p := &PrefixCache{
@@ -122,8 +148,7 @@ func NewPrefixCache(store datastore.Store, pluginArg runtime.RawExtension) *Pref
 		blockSizeToHash:  prefixCacheArgs.BlockSizeToHash,
 		maxBlocksToMatch: prefixCacheArgs.MaxBlocksToMatch,
 	}
-	// Initialize store with default values
-	p.store = cache.NewModelPrefixStore(store, prefixCacheArgs.MaxHashCacheSize, 5) // TODO: make these configurable
+	p.store = cache.NewModelPrefixStore(store, prefixCacheArgs.MaxHashCacheSize, prefixCacheArgs.TopKMatches)
 	return p
 }
 
